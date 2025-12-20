@@ -12,14 +12,34 @@ export enum LessonId {
   Project = 'project'
 }
 
+export interface Question {
+  id: number;
+  question: string;
+  options: string[];
+  correctAnswer: number;
+  explanation: string;
+}
+
+export interface Quiz {
+  questions: Question[];
+}
+
 export interface Lesson {
   id: LessonId;
   title: string;
   content: string;
-  defaultCode: string;
+  examples: string[]; // تم التغيير من defaultCode إلى مصفوفة أمثلة
+  quiz?: Quiz;
 }
 
 export interface ChatMessage {
   role: 'user' | 'model' | 'system';
   text: string;
+}
+
+export interface User {
+  email: string;
+  name: string;
+  password?: string;
+  scores: Record<string, number>; // LessonId -> Score Percentage
 }
