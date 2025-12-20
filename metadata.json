@@ -1,6 +1,5 @@
+
 {
-  "name": "أكاديمية بايثون الذكية",
-  "description": "منصة تعليمية لتعلم بايثون مع معلم ذكي مدعوم بالذكاء الاصطناعي.",
   "requestFramePermissions": [
     "camera",
     "microphone"

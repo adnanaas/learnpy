@@ -1,166 +1,162 @@
 
 import React, { useState, useEffect } from 'react';
-import { LESSONS } from './constants';
-import { LessonId, Lesson } from './types';
 import Sidebar from './components/Sidebar';
 import AITutor from './components/AITutor';
-import { getCodeExecutionFeedback } from './services/geminiService';
+import { LESSONS } from './constants';
+import { LessonId, Lesson } from './types';
+import { executeAndAnalyze } from './services/geminiService';
 
 const App: React.FC = () => {
-  const [activeLesson, setActiveLesson] = useState<Lesson>(LESSONS[0]);
-  const [code, setCode] = useState(activeLesson.defaultCode);
-  const [feedback, setFeedback] = useState<any>(null);
-  const [isExecuting, setIsExecuting] = useState(false);
+  const [lesson, setLesson] = useState<Lesson>(LESSONS[0]);
+  const [code, setCode] = useState(lesson.defaultCode);
+  const [result, setResult] = useState<any>(null);
+  const [executing, setExecuting] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
-    setCode(activeLesson.defaultCode);
-    setFeedback(null);
-  }, [activeLesson]);
+    setCode(lesson.defaultCode);
+    setResult(null);
+  }, [lesson]);
 
-  const runCode = async () => {
-    setIsExecuting(true);
-    setFeedback(null);
+  const handleRun = async () => {
+    setExecuting(true);
     try {
-      const result = await getCodeExecutionFeedback(code, activeLesson.title);
-      setFeedback(result);
+      const res = await executeAndAnalyze(code, lesson.title);
+      setResult(res);
     } catch {
-      setFeedback({ isCorrect: false, output: "Error.", feedback: "تعذر الاتصال بالمعلم.", suggestions: [], fixedCode: code });
+      setResult({ output: "خطأ في الاتصال بالمصحح الذكي", feedback: "يرجى التحقق من اتصال الإنترنت أو مفتاح API." });
     } finally {
-      setIsExecuting(false);
-    }
-  };
-
-  const applyFix = () => {
-    if (feedback?.fixedCode) {
-      setCode(feedback.fixedCode);
-      setFeedback(null);
+      setExecuting(false);
     }
   };
 
   return (
-    <div className="flex h-screen bg-[#f8fafc] overflow-hidden" dir="rtl">
-      {/* القائمة الجانبية - عادت كما كانت في الأصل */}
-      <Sidebar activeLessonId={activeLesson.id} onLessonSelect={id => setActiveLesson(LESSONS.find(l => l.id === id) || LESSONS[0])} />
+    <div className="flex h-screen bg-slate-50 overflow-hidden text-right" dir="rtl">
+      {/* القائمة الجانبية */}
+      <Sidebar 
+        activeLessonId={lesson.id} 
+        onLessonSelect={id => setLesson(LESSONS.find(l => l.id === id)!)} 
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+      />
+      
+      {/* غطاء خلفي عند فتح القائمة في الجوال */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 md:hidden transition-opacity" 
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {/* هيدر الصفحة */}
-        <header className="h-16 bg-white border-b border-slate-100 flex items-center justify-between px-8 shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.03)] z-10">
-          <div className="flex flex-col">
-             <h2 className="text-xl font-black text-slate-800 tracking-tight">{activeLesson.title}</h2>
-             <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest">المستوى الأساسي</span>
-          </div>
-          <div className="flex gap-2">
-            {feedback && !feedback.isCorrect && (
-              <button onClick={applyFix} className="bg-amber-100 text-amber-800 px-4 py-2 rounded-xl text-xs font-bold border border-amber-200 hover:bg-amber-200 transition-all flex items-center gap-2 shadow-sm">
-                <span>🪄</span> إصلاح الكود
-              </button>
-            )}
+      <main className="flex-1 flex flex-col min-w-0 h-full relative">
+        {/* الهيدر */}
+        <header className="h-16 bg-white border-b px-4 md:px-8 flex items-center justify-between shrink-0 z-30 shadow-sm">
+          <div className="flex items-center gap-3">
             <button 
-              onClick={runCode} 
-              disabled={isExecuting} 
-              className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-sm font-bold hover:bg-emerald-700 transition-all shadow-lg active:scale-95 disabled:opacity-50 flex items-center gap-2"
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-2 hover:bg-slate-100 rounded-xl md:hidden text-slate-600 transition-colors"
             >
-              {isExecuting ? 'جاري التشغيل...' : (
-                <>
-                  <span className="text-base">▶</span> تشغيل الكود
-                </>
-              )}
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
             </button>
+            <div className="flex flex-col md:flex-row md:items-center md:gap-3">
+                <h2 className="text-sm md:text-lg font-black text-slate-800 truncate max-w-[140px] md:max-w-none">
+                {lesson.title}
+                </h2>
+                <span className="hidden md:inline text-slate-300">|</span>
+                <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full md:text-xs">جاري التعلم</span>
+            </div>
           </div>
+          
+          <button 
+            onClick={handleRun} 
+            disabled={executing}
+            className="bg-emerald-600 text-white px-5 md:px-8 py-2.5 rounded-2xl text-xs md:text-sm font-black hover:bg-emerald-700 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-emerald-200"
+          >
+            {executing ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                جاري...
+              </span>
+            ) : (
+              <>
+                <span className="hidden md:inline">تشغيل الكود</span>
+                <span className="md:hidden">تشغيل</span>
+                <span className="text-lg">▶</span>
+              </>
+            )}
+          </button>
         </header>
 
-        <div className="flex-1 flex overflow-hidden p-5 gap-5">
-          {/* العمود الأيمن: الشرح والمعلم */}
-          <div className="w-[38%] flex flex-col gap-5 overflow-hidden h-full">
-            
-            {/* شرح الدرس (ممتاز وطويل كما طلبت) */}
-            <section className="bg-white rounded-3xl shadow-sm border border-slate-100 flex flex-col flex-[1.4] overflow-hidden min-h-0">
-               <div className="p-5 border-b border-slate-50 shrink-0 flex items-center justify-between bg-white">
-                  <h3 className="text-slate-800 font-black text-lg flex items-center gap-2">
-                    <span className="text-emerald-500">📖</span>
-                    شرح الدرس
-                  </h3>
-               </div>
-               <div className="flex-1 overflow-y-auto p-6 pt-2 custom-scrollbar">
-                  <p className="text-slate-600 text-[16px] leading-[1.8] whitespace-pre-wrap font-medium">
-                    {activeLesson.content}
-                  </p>
-               </div>
+        {/* المحتوى الرئيسي المتجاوب */}
+        <div className="flex-1 flex flex-col md:flex-row p-3 md:p-6 gap-4 md:gap-6 overflow-y-auto md:overflow-hidden">
+          
+          {/* قسم الشرح والمعلم (يسار/أعلى) */}
+          <div className="w-full md:w-[380px] lg:w-[420px] flex flex-col gap-4 md:gap-6 shrink-0 h-auto md:h-full">
+            <section className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm">
+              <h3 className="font-black text-slate-800 mb-3 flex items-center gap-2 text-sm md:text-base">
+                <span className="bg-emerald-100 p-1.5 rounded-lg">📖</span> الشرح المبسط
+              </h3>
+              <div className="text-xs md:text-sm leading-relaxed text-slate-600 font-medium">
+                {lesson.content}
+              </div>
             </section>
             
-            {/* المعلم الذكي (تم ضبط المساحة لظهور خانة الإدخال) */}
-            <div className="flex-1 min-h-0">
-               <AITutor lessonTitle={activeLesson.title} lessonContent={activeLesson.content} currentCode={code} />
+            <div className="h-[450px] md:flex-1 min-h-[400px]">
+              <AITutor lessonTitle={lesson.title} lessonContent={lesson.content} currentCode={code} />
             </div>
           </div>
 
-          {/* العمود الأيسر: المحرر والكونسول */}
-          <div className="flex-1 flex flex-col gap-5 overflow-hidden">
-            <div className="flex-1 bg-[#0d1117] rounded-3xl border border-slate-800 flex flex-col shadow-2xl overflow-hidden min-h-[200px]">
-              <div className="bg-[#161b22] px-6 py-3 flex items-center justify-between border-b border-slate-800 shrink-0">
-                <span className="text-emerald-500 font-mono text-xs font-bold uppercase tracking-widest">Editor / main.py</span>
+          {/* قسم المحرر والمخرجات (يمين/أسفل) */}
+          <div className="flex-1 flex flex-col gap-4 md:gap-6 min-h-[550px] md:min-h-0 h-auto md:h-full">
+            {/* المحرر */}
+            <div className="flex-1 bg-[#0d1117] rounded-3xl border border-slate-800 flex flex-col overflow-hidden shadow-2xl relative">
+              <div className="bg-[#161b22] px-5 py-3 border-b border-slate-800 flex justify-between items-center shrink-0">
                 <div className="flex gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full bg-rose-500/20 border border-rose-500/40"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500/20 border border-amber-500/40"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/20 border border-emerald-500/40"></div>
+                    <div className="w-3 h-3 rounded-full bg-rose-500/20 border border-rose-500/40"></div>
+                    <div className="w-3 h-3 rounded-full bg-amber-500/20 border border-amber-500/40"></div>
+                    <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/40"></div>
                 </div>
+                <span className="text-[10px] text-slate-500 font-mono font-bold tracking-widest">PYTHON_EDITOR</span>
               </div>
               <textarea 
                 value={code} 
                 onChange={e => setCode(e.target.value)} 
-                dir="ltr" 
-                className="flex-1 bg-transparent text-[#e6edf3] p-6 font-mono text-lg focus:outline-none resize-none leading-relaxed text-left selection:bg-emerald-500/30"
+                dir="ltr"
                 spellCheck={false}
+                autoCapitalize="none"
+                autoComplete="off"
+                className="flex-1 bg-transparent text-emerald-400 p-6 font-mono text-sm md:text-lg focus:outline-none resize-none text-left leading-relaxed custom-scrollbar"
               />
+              <div className="absolute bottom-4 right-4 text-[10px] text-slate-600 font-mono pointer-events-none">utf-8</div>
             </div>
-
-            <div className="flex-1 bg-[#010409] rounded-3xl border border-slate-800 flex flex-col shadow-inner overflow-hidden min-h-[200px]">
-              <div className="bg-slate-950 px-6 py-2.5 text-[9px] text-slate-500 font-black tracking-widest border-b border-slate-800 flex justify-between items-center shrink-0">
-                <span>PYTHON CONSOLE</span>
+            
+            {/* الكونسول (المخرجات) */}
+            <div className="h-56 md:h-1/3 bg-[#010409] rounded-3xl border border-slate-800 flex flex-col overflow-hidden shadow-2xl shrink-0">
+              <div className="bg-slate-950 px-5 py-3 border-b border-slate-800 text-[10px] text-slate-500 font-mono font-bold flex justify-between items-center">
+                <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                    CONSOLE_OUTPUT
+                </span>
+                {result && <span className={`px-2 py-0.5 rounded text-[9px] ${result.isCorrect ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                  {result.isCorrect ? 'PASS' : 'ERROR'}
+                </span>}
               </div>
-              <div className="flex-1 p-6 font-mono text-lg text-left overflow-y-auto whitespace-pre-wrap leading-relaxed text-emerald-400 custom-scrollbar" dir="ltr">
-                {isExecuting ? (
-                  <div className="flex items-center gap-3 text-slate-600 italic">
-                    <span className="animate-spin text-xl">⏳</span>
-                    <span>Running...</span>
-                  </div>
-                ) : (
-                  <div className="opacity-90">
-                    {feedback?.output || <span className="text-slate-700 italic opacity-40 font-sans text-sm"># المخرجات ستظهر هنا بعد التشغيل...</span>}
-                  </div>
-                )}
+              <div className="flex-1 p-5 font-mono text-xs md:text-sm text-left overflow-y-auto text-slate-100 custom-scrollbar" dir="ltr">
+                <span className="text-slate-600 mr-2">$</span>
+                {result?.output || "waiting for code execution..."}
               </div>
+              {result && (
+                <div className={`p-4 text-[11px] md:text-xs font-bold border-t border-slate-800/50 ${result.isCorrect ? 'bg-emerald-900/20 text-emerald-300' : 'bg-rose-900/20 text-rose-300'}`}>
+                  <div className="flex items-start gap-2">
+                    <span>{result.isCorrect ? '💡' : '⚠️'}</span>
+                    <p className="leading-normal">{result.feedback}</p>
+                  </div>
+                </div>
+              )}
             </div>
-
-            {feedback && (
-              <div className={`p-4 rounded-2xl border flex items-center gap-4 animate-in slide-in-from-bottom-2 duration-300 shrink-0 ${feedback.isCorrect ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${feedback.isCorrect ? 'bg-emerald-100' : 'bg-rose-100'}`}>
-                   <span className="text-xl">{feedback.isCorrect ? '✅' : '❌'}</span>
-                </div>
-                <div className="flex-1">
-                  <p className={`text-sm font-bold ${feedback.isCorrect ? 'text-emerald-900' : 'text-rose-900'}`}>{feedback.feedback}</p>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </main>
-      
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 5px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #e2e8f0;
-          border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #cbd5e1;
-        }
-      `}</style>
     </div>
   );
 };
