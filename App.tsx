@@ -11,6 +11,8 @@ import { authService } from './services/authService';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [lesson, setLesson] = useState<Lesson>(LESSONS[0]);
   const [exampleIndex, setExampleIndex] = useState(0);
   const [code, setCode] = useState(lesson.examples[0]);
@@ -19,32 +21,24 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isQuizOpen, setIsQuizOpen] = useState(false);
 
-  // التحقق من وجود جلسة سابقة
+  // الاستماع لحالة تسجيل الدخول من Firebase
   useEffect(() => {
-    const savedUser = localStorage.getItem('active_user');
-    if (savedUser) {
-        const parsed = JSON.parse(savedUser);
-        const users = authService.getUsers();
-        const latest = users.find(u => u.email === parsed.email);
-        if (latest) setUser(latest);
-    }
+    const unsubscribe = authService.subscribeToAuthChanges((u, uid) => {
+      setUser(u);
+      setUserId(uid);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
-  // عند تغيير الدرس، نعيد ضبط رقم المثال
   useEffect(() => {
     setExampleIndex(0);
     setCode(lesson.examples[0]);
     setResult(null);
   }, [lesson]);
 
-  const handleLoginSuccess = (u: User) => {
-    setUser(u);
-    localStorage.setItem('active_user', JSON.stringify(u));
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('active_user');
+  const handleLogout = async () => {
+    await authService.logout();
   };
 
   const handleNextExample = () => {
@@ -60,24 +54,34 @@ const App: React.FC = () => {
       const res = await executeAndAnalyze(code, lesson.title);
       setResult(res);
     } catch {
-      setResult({ output: "خطأ في الاتصال بالمصحح الذكي", feedback: "يرجى التحقق من اتصال الإنترنت." });
+      setResult({ 
+        output: "خطأ في الاتصال بالمصحح الذكي", 
+        feedback: "يرجى التحقق من اتصال الإنترنت وضبط مفتاح الـ API." 
+      });
     } finally {
       setExecuting(false);
     }
   };
 
-  const handleQuizFinish = (scorePercentage: number) => {
-    if (user) {
-      const updatedUser = authService.saveScore(user.email, lesson.id, scorePercentage);
-      if (updatedUser) {
-        setUser(updatedUser);
-        localStorage.setItem('active_user', JSON.stringify(updatedUser));
-      }
+  const handleQuizFinish = async (scorePercentage: number) => {
+    if (user && userId) {
+      const updatedUser = await authService.saveScore(userId, lesson.id, scorePercentage);
+      if (updatedUser) setUser(updatedUser);
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-6">
+        <div className="text-6xl mb-6 animate-bounce">🐍</div>
+        <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-emerald-400 font-black animate-pulse">جاري الاتصال بالأكاديمية...</p>
+      </div>
+    );
+  }
+
   if (!user) {
-    return <AuthModal onSuccess={handleLoginSuccess} />;
+    return <AuthModal onSuccess={(u) => setUser(u)} />;
   }
 
   return (
@@ -123,7 +127,6 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-2 md:gap-3">
-            {/* 1. زر مثال جديد */}
             {lesson.examples.length > 1 && (
               <button 
                 onClick={handleNextExample}
@@ -134,7 +137,6 @@ const App: React.FC = () => {
               </button>
             )}
 
-            {/* 2. زر التقويم */}
             {lesson.quiz && (
               <button 
                 onClick={() => setIsQuizOpen(true)}
@@ -144,7 +146,6 @@ const App: React.FC = () => {
               </button>
             )}
 
-            {/* 3. زر التشغيل */}
             <button 
               onClick={handleRun} 
               disabled={executing}
@@ -153,8 +154,7 @@ const App: React.FC = () => {
               {executing ? '...' : 'تشغيل ▶'}
             </button>
 
-            {/* 4. زر تسجيل الخروج (الأخير دائماً) */}
-            <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-rose-500 transition-colors bg-slate-50 rounded-xl border border-slate-100" title="تسجيل الخروج">
+            <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-rose-500 transition-colors bg-slate-50 rounded-xl border border-slate-100" title="خروج">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
             </button>
           </div>
@@ -162,15 +162,16 @@ const App: React.FC = () => {
 
         <div className="flex-1 p-3 md:p-6 flex flex-col md:flex-row gap-6 overflow-y-auto">
           <div className="w-full md:w-[400px] flex flex-col gap-6 shrink-0">
-            <section className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm flex flex-col h-[350px] md:h-[400px] relative">
-              <div className="flex justify-between items-center mb-3 shrink-0">
+            <section className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm flex flex-col h-[400px] md:h-[450px] relative">
+              <div className="flex justify-between items-center mb-3 shrink-0 border-b pb-2">
                 <h3 className="font-black text-slate-800 flex items-center gap-2 text-sm md:text-base">
-                  <span className="bg-emerald-100 p-1.5 rounded-lg text-lg">📖</span> الشرح التعليمي
+                  <span className="bg-emerald-100 p-1.5 rounded-lg text-lg">📖</span> الشرح التعليمي المفصل
                 </h3>
               </div>
-              <div className="flex-1 overflow-y-auto custom-scrollbar text-xs md:text-sm leading-relaxed text-slate-600 font-medium whitespace-pre-wrap pl-2 pb-4">
+              <div className="flex-1 overflow-y-auto custom-scrollbar text-xs md:text-sm leading-relaxed text-slate-600 font-medium whitespace-pre-wrap pl-2 pb-6">
                 {lesson.content}
               </div>
+              <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-white to-transparent pointer-events-none rounded-b-3xl"></div>
             </section>
             
             <div className="h-[500px] md:flex-1 min-h-[400px]">
@@ -188,9 +189,9 @@ const App: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-3">
                    {lesson.examples.length > 1 && (
-                     <span className="text-[9px] text-amber-500/80 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full uppercase tracking-tighter">EXAMPLE {exampleIndex + 1} / {lesson.examples.length}</span>
+                     <span className="text-[9px] text-amber-500/80 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">EX {exampleIndex + 1} / {lesson.examples.length}</span>
                    )}
-                   <span className="text-[10px] text-slate-500 font-mono font-bold uppercase tracking-widest">Code Editor</span>
+                   <span className="text-[10px] text-slate-500 font-mono font-bold uppercase tracking-widest">Python Editor</span>
                 </div>
               </div>
               <textarea 
