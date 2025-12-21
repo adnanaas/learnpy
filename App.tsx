@@ -39,7 +39,6 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // تحديث الكود عند تغيير الدرس أو المثال
   const handleLessonChange = useCallback((id: LessonId) => {
     const found = LESSONS.find(l => l.id === id);
     if (found) {
@@ -67,8 +66,8 @@ const App: React.FC = () => {
       setResult(res);
     } catch (err) {
       setResult({ 
-        output: "خطأ في الاتصال بالذكاء الاصطناعي", 
-        feedback: "تأكد من إعداد مفتاح API_KEY بشكل صحيح." 
+        output: "تعذر الاتصال بالخادم", 
+        feedback: "تأكد من إعداد الـ API_KEY بشكل صحيح في لوحة التحكم." 
       });
     } finally {
       setExecuting(false);
@@ -124,7 +123,7 @@ const App: React.FC = () => {
         />
       )}
 
-      <main className="flex-1 flex flex-col min-w-0 h-screen">
+      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <header className="h-20 bg-white border-b px-4 md:px-8 flex items-center justify-between shrink-0 z-30 shadow-sm">
           <div className="flex items-center gap-4">
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 hover:bg-slate-100 rounded-xl md:hidden text-slate-600">
@@ -140,17 +139,22 @@ const App: React.FC = () => {
           
           <div className="flex items-center gap-2">
             {lesson.examples.length > 1 && (
-              <button onClick={handleNextExample} className="bg-amber-100 text-amber-700 px-3 py-2.5 rounded-xl text-[10px] font-black hover:bg-amber-200 border border-amber-200">
+              <button onClick={handleNextExample} className="bg-amber-100 text-amber-700 px-3 py-2.5 rounded-xl text-[10px] font-black hover:bg-amber-200 border border-amber-200 transition-colors">
                 مثال ✨
               </button>
             )}
             {lesson.quiz && (
-              <button onClick={() => setIsQuizOpen(true)} className="bg-indigo-600 text-white px-3 py-2.5 rounded-xl text-[10px] font-black hover:bg-indigo-700 shadow-md shadow-indigo-100">
+              <button onClick={() => setIsQuizOpen(true)} className="bg-indigo-600 text-white px-3 py-2.5 rounded-xl text-[10px] font-black hover:bg-indigo-700 shadow-md shadow-indigo-100 transition-colors">
                 تقويم 📝
               </button>
             )}
-            <button onClick={handleRun} disabled={executing} className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-xs font-black hover:bg-emerald-700 active:scale-95 disabled:opacity-50 shadow-md shadow-emerald-200">
-              {executing ? '...' : 'تشغيل ▶'}
+            <button onClick={handleRun} disabled={executing} className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-xs font-black hover:bg-emerald-700 active:scale-95 disabled:opacity-50 shadow-md shadow-emerald-200 transition-all">
+              {executing ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  <span>جاري التحليل...</span>
+                </div>
+              ) : 'تشغيل ▶'}
             </button>
           </div>
         </header>
@@ -179,23 +183,36 @@ const App: React.FC = () => {
                     <div className="w-2.5 h-2.5 rounded-full bg-amber-500/30"></div>
                     <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/30"></div>
                 </div>
-                <span className="text-[10px] text-slate-500 font-mono font-bold uppercase">Editor</span>
+                <span className="text-[10px] text-slate-500 font-mono font-bold uppercase tracking-widest">محرر بايثون</span>
               </div>
               <textarea 
                 value={code} 
                 onChange={e => setCode(e.target.value)} 
                 dir="ltr"
                 spellCheck={false}
-                className="flex-1 bg-transparent text-emerald-400 p-6 font-mono text-sm md:text-base focus:outline-none resize-none text-left"
+                className="flex-1 bg-transparent text-emerald-400 p-6 font-mono text-sm md:text-base focus:outline-none resize-none text-left leading-relaxed"
+                placeholder="# اكتب كود بايثون هنا..."
               />
             </div>
             
-            <div className="h-40 bg-[#010409] rounded-3xl border border-slate-800 flex flex-col overflow-hidden shadow-xl shrink-0">
-              <div className="bg-slate-950 px-4 py-2 border-b border-slate-800 text-[9px] text-slate-500 font-mono font-bold">النتيجة</div>
-              <div className="flex-1 p-4 font-mono text-xs text-left overflow-y-auto text-slate-100" dir="ltr">
-                <span className="text-slate-600 mr-2">$</span>
-                {result?.output || "بانتظار التشغيل..."}
+            <div className="h-44 bg-[#010409] rounded-3xl border border-slate-800 flex flex-col overflow-hidden shadow-xl shrink-0">
+              <div className="bg-slate-950 px-4 py-2 border-b border-slate-800 text-[9px] text-slate-500 font-mono font-bold flex justify-between items-center">
+                <span>النتيجة والتحليل</span>
+                {result && (
+                  <span className={`text-[10px] ${result.isCorrect ? 'text-emerald-500' : 'text-rose-500'}`}>
+                    {result.isCorrect ? '✓ نجاح' : '✗ يحتاج تعديل'}
+                  </span>
+                )}
               </div>
+              <div className="flex-1 p-4 font-mono text-xs text-left overflow-y-auto text-slate-100 bg-black/20" dir="ltr">
+                <span className="text-slate-600 mr-2">$</span>
+                {result?.output || "بانتظار الضغط على زر التشغيل..."}
+              </div>
+              {result?.feedback && (
+                <div className={`px-4 py-2 text-[10px] md:text-xs font-bold border-t border-white/5 ${result.isCorrect ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                   💡 {result.feedback}
+                </div>
+              )}
             </div>
           </div>
         </div>

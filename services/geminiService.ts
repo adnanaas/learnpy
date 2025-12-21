@@ -2,61 +2,80 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ChatMessage } from "../types";
 
-/**
- * Gets a tutor response using the Gemini 3 Pro model for better reasoning in coding lessons.
- */
 export const getTutorResponse = async (
   lesson: string, content: string, code: string, msg: string, history: ChatMessage[]
 ) => {
-  // Always initialize GoogleGenAI right before use with process.env.API_KEY
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const res = await ai.models.generateContent({
-    // Using gemini-3-pro-preview for complex coding tasks
-    model: 'gemini-3-pro-preview',
-    contents: [
-      ...history.filter(m => m.role !== 'system').map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.text }]
-      })),
-      { role: 'user', parts: [{ text: msg }] }
-    ],
-    config: {
-      systemInstruction: `أنت معلم بايثون خبير وصبور. الدرس الحالي هو: ${lesson}. المحتوى التعليمي: ${content}. كود الطالب الحالي: ${code}. اشرح المفاهيم ببساطة وباللغة العربية.`
+  try {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey || apiKey === "undefined" || apiKey.length < 10) {
+      return "خطأ: مفتاح الـ API غير مضبوط بشكل صحيح في إعدادات الموقع.";
     }
-  });
-  // Access .text property directly (not as a method)
-  return res.text || "لا يوجد رد.";
+
+    const ai = new GoogleGenAI({ apiKey });
+    const res = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: [
+        ...history.filter(m => m.role !== 'system').map(m => ({
+          role: m.role === 'user' ? 'user' : 'model',
+          parts: [{ text: m.text }]
+        })),
+        { role: 'user', parts: [{ text: msg }] }
+      ],
+      config: {
+        systemInstruction: `أنت معلم بايثون خبير وصبور. الدرس الحالي هو: ${lesson}. المحتوى التعليمي: ${content}. كود الطالب الحالي: ${code}. اشرح المفاهيم ببساطة وباللغة العربية.`
+      }
+    });
+    return res.text || "لا يوجد رد من المعلم.";
+  } catch (error: any) {
+    console.error("Gemini API Detail Error:", error);
+    return `عذراً، حدث خطأ أثناء الاتصال بالمعلم الذكي. (السبب: ${error.message || 'غير معروف'})`;
+  }
 };
 
-/**
- * Analyzes code execution results using the Gemini 3 Pro model for high-quality reasoning.
- */
 export const executeAndAnalyze = async (code: string, lesson: string) => {
-  // Always initialize GoogleGenAI right before use with process.env.API_KEY
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const res = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: [{ role: 'user', parts: [{ text: `قم بمحاكاة تنفيذ كود بايثون التالي لدرس ${lesson}، وحلل النتيجة:\n\n${code}` }] }],
-    config: {
-      systemInstruction: "هام جداً: عند توليد مخرجات الكود (output)، يجب وضع سطر فارغ بين نتيجة كل عملية طباعة (print) والعملية التي تليها لجعل النتائج واضحة للطالب. تأكد من أن الرد بصيغة JSON.",
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          isCorrect: { type: Type.BOOLEAN },
-          output: { 
-            type: Type.STRING,
-            description: "مخرجات الكود مع سطر فارغ بين كل جملة برنت وأخرى"
-          },
-          feedback: { type: Type.STRING },
-          fixedCode: { type: Type.STRING }
-        },
-        required: ["isCorrect", "output", "feedback", "fixedCode"]
-      }
+  try {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey || apiKey === "undefined") {
+      throw new Error("MISSING_API_KEY");
     }
-  });
-  
-  // Use .text property directly and trim for JSON parsing
-  const jsonStr = res.text?.trim() || '{}';
-  return JSON.parse(jsonStr);
+
+    const ai = new GoogleGenAI({ apiKey });
+    const res = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: [{ role: 'user', parts: [{ text: `قم بمحاكاة تنفيذ كود بايثون التالي لدرس ${lesson}، وحلل النتيجة:\n\n${code}` }] }],
+      config: {
+        systemInstruction: "هام: قم بتحليل كود بايثون وارجاع النتيجة بصيغة JSON حصراً. تأكد من إضافة سطر فارغ بين مخرجات الطباعة المختلفة.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isCorrect: { type: Type.BOOLEAN },
+            output: { type: Type.STRING },
+            feedback: { type: Type.STRING },
+            fixedCode: { type: Type.STRING }
+          },
+          required: ["isCorrect", "output", "feedback", "fixedCode"]
+        }
+      }
+    });
+    
+    const jsonStr = res.text?.trim() || '{}';
+    return JSON.parse(jsonStr);
+  } catch (error: any) {
+    console.error("Gemini Execution Detail Error:", error);
+    let errorMessage = "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.";
+    
+    if (error.message === "MISSING_API_KEY") {
+      errorMessage = "مفتاح API_KEY مفقود. يرجى إضافته في إعدادات البيئة (Environment Variables).";
+    } else if (error.message.includes("403")) {
+      errorMessage = "المفتاح المستخدم (API_KEY) غير صالح أو محظور.";
+    }
+    
+    return {
+      isCorrect: false,
+      output: "خطأ في الاتصال",
+      feedback: errorMessage,
+      fixedCode: code
+    };
+  }
 };
