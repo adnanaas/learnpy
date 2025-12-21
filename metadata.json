@@ -1,8 +1,7 @@
+
 {
   "requestFramePermissions": [
     "camera",
     "microphone"
-  ],
-  "name": "أكاديمية بايثون الذكية",
-  "description": ""
+  ]
 }
