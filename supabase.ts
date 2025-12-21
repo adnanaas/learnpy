@@ -1,37 +1,44 @@
+
 import { createClient } from '@supabase/supabase-js';
 
 /**
- * 💡 حل مشكلة 'Invalid URL': 
- * قمنا بتحسين تهيئة العميل للتأكد من أن الرابط صالح قبل محاولة إنشاء الاتصال.
+ * دالة جلب الإعدادات بشكل آمن يمنع الانهيار
  */
-
 const getSupabaseConfig = () => {
-  const url = process.env.SUPABASE_URL || 'https://placeholder-project.supabase.co';
-  const key = process.env.SUPABASE_ANON_KEY || 'placeholder-key';
+  let url = '';
+  let key = '';
+
+  try {
+    // محاولة جلب القيم من البيئة
+    url = process.env.SUPABASE_URL || '';
+    key = process.env.SUPABASE_ANON_KEY || '';
+  } catch (e) {
+    // في حال عدم وجود كائن process (بيئة المتصفح الخام)
+    console.warn("Environment variables not injected yet.");
+  }
+
+  // استخدام روابط وهمية صالحة التنسيق فقط إذا كانت القيم فارغة
+  const finalUrl = (url && url.startsWith('http')) ? url : 'https://placeholder-project.supabase.co';
+  const finalKey = key || 'placeholder-key';
   
-  // التحقق من أن الرابط يبدأ بـ http لضمان صحته
-  const isValidUrl = url.startsWith('http');
-  
-  return { url, key, isValidUrl };
+  // التحقق مما إذا كان المشروع قد تم ربطه فعلياً بمشروع حقيقي
+  const isReal = url && url.startsWith('http') && !url.includes('your-project');
+
+  return { finalUrl, finalKey, isReal };
 };
 
 const config = getSupabaseConfig();
 
-export const supabase = config.isValidUrl 
-  ? createClient(config.url, config.key, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true
-      }
-    })
-  : null;
+// إنشاء العميل
+export const supabase = createClient(config.finalUrl, config.finalKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true
+  }
+});
 
+// دالة التحقق للاستخدام في المكونات
 export const isSupabaseConfigured = () => {
-  const { url, isValidUrl } = getSupabaseConfig();
-  return (
-    supabase !== null &&
-    isValidUrl &&
-    !url.includes('placeholder-project')
-  );
+  const check = getSupabaseConfig();
+  return check.isReal;
 };
