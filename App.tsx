@@ -1,18 +1,12 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import AITutor from './components/AITutor';
 import QuizModal from './components/QuizModal';
-import AuthModal from './components/AuthModal';
 import { LESSONS } from './constants';
-import { LessonId, Lesson, User } from './types';
+import { LessonId, Lesson } from './types';
 import { executeAndAnalyze } from './services/geminiService';
-import { authService } from './services/authService';
-import { isSupabaseConfigured } from './supabase';
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [lesson, setLesson] = useState<Lesson>(LESSONS[0]);
   const [exampleIndex, setExampleIndex] = useState(0);
@@ -21,22 +15,15 @@ const App: React.FC = () => {
   const [executing, setExecuting] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isQuizOpen, setIsQuizOpen] = useState(false);
+  const [userScores, setUserScores] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    const unsubscribe = authService.subscribeToAuthChanges((u, uid) => {
-      setUser(u);
-      setUserId(uid);
-      setLoading(false);
-    });
-
-    const fallback = setTimeout(() => {
-      setLoading(false);
-    }, 2000);
-
-    return () => {
-      unsubscribe();
-      clearTimeout(fallback);
-    };
+    // تحميل الدرجات من الذاكرة المحلية للمتصفح
+    const savedScores = localStorage.getItem('python_academy_scores');
+    if (savedScores) {
+      setUserScores(JSON.parse(savedScores));
+    }
+    setLoading(false);
   }, []);
 
   const handleLessonChange = useCallback((id: LessonId) => {
@@ -66,24 +53,18 @@ const App: React.FC = () => {
       setResult(res);
     } catch (err) {
       setResult({ 
-        output: "تعذر الاتصال بالخادم", 
-        feedback: "تأكد من إعداد الـ API_KEY بشكل صحيح في لوحة التحكم." 
+        output: "تعذر الاتصال بالذكاء الاصطناعي", 
+        feedback: "يرجى التحقق من مفتاح الـ API في الإعدادات." 
       });
     } finally {
       setExecuting(false);
     }
   };
 
-  const handleQuizFinish = async (scorePercentage: number) => {
-    if (userId && isSupabaseConfigured()) {
-      const updatedUser = await authService.saveScore(userId, lesson.id, scorePercentage);
-      if (updatedUser) setUser(updatedUser);
-    } else if (user) {
-      setUser({
-        ...user,
-        scores: { ...user.scores, [lesson.id]: scorePercentage }
-      });
-    }
+  const handleQuizFinish = (scorePercentage: number) => {
+    const newScores = { ...userScores, [lesson.id]: scorePercentage };
+    setUserScores(newScores);
+    localStorage.setItem('python_academy_scores', JSON.stringify(newScores));
   };
 
   if (loading) {
@@ -91,13 +72,9 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white">
         <div className="text-6xl mb-6 animate-bounce">🐍</div>
         <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="mt-4 text-emerald-400 font-bold">جاري تحميل الأكاديمية...</p>
+        <p className="mt-4 text-emerald-400 font-bold">جاري تشغيل الأكاديمية...</p>
       </div>
     );
-  }
-
-  if (!user) {
-    return <AuthModal onSuccess={(u) => setUser(u)} />;
   }
 
   return (
@@ -107,7 +84,7 @@ const App: React.FC = () => {
         onLessonSelect={handleLessonChange} 
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
-        userScores={user.scores || {}}
+        userScores={userScores}
       />
       
       {isSidebarOpen && (
@@ -133,7 +110,7 @@ const App: React.FC = () => {
                 <h2 className="text-sm md:text-lg font-black text-slate-800 truncate max-w-[150px] md:max-w-none">
                   {lesson.title}
                 </h2>
-                <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full self-start">الطالب: {user.name}</span>
+                <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full self-start">وضع التعلم الحر</span>
             </div>
           </div>
           
