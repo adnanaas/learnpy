@@ -1,102 +1,118 @@
-import { 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
-  signOut,
-  onAuthStateChanged
-} from "firebase/auth";
-import { 
-  doc, 
-  setDoc, 
-  getDoc, 
-  updateDoc 
-} from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { supabase, isSupabaseConfigured } from "../supabase";
 import { User } from "../types";
 
+const CONFIG_ERROR = "تنبيه: قاعدة البيانات غير متصلة حالياً. يرجى ضبط الإعدادات أو استخدام وضع الزائر.";
+
 export const authService = {
-  // إنشاء حساب جديد في Firebase
   register: async (name: string, email: string, password: string): Promise<User | string> => {
+    if (!supabase || !isSupabaseConfigured()) return CONFIG_ERROR;
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      
-      const userData: User = {
-        name,
+      const { data, error } = await supabase.auth.signUp({
         email,
-        scores: {}
-      };
+        password,
+        options: {
+          data: { full_name: name }
+        }
+      });
 
-      // حفظ بيانات المستخدم الإضافية في Firestore
-      await setDoc(doc(db, "users", user.uid), userData);
-      return userData;
-    } catch (error: any) {
-      if (error.code === 'auth/email-already-in-use') return "هذا البريد مسجل مسبقاً!";
-      return "حدث خطأ أثناء التسجيل، حاول مرة أخرى.";
-    }
-  },
+      if (error) return error.message;
 
-  // تسجيل الدخول عبر Firebase
-  login: async (email: string, password: string): Promise<User | string> => {
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      
-      // جلب البيانات من Firestore
-      const docRef = doc(db, "users", user.uid);
-      const docSnap = await getDoc(docRef);
-      
-      if (docSnap.exists()) {
-        return docSnap.data() as User;
-      } else {
-        return "لم يتم العثور على بيانات المستخدم.";
-      }
-    } catch (error: any) {
-      return "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
-    }
-  },
+      if (data.user) {
+        // ننتظر قليلاً لضمان استقرار الجلسة
+        await new Promise(resolve => setTimeout(resolve, 800));
 
-  // تسجيل الخروج
-  logout: async () => {
-    await signOut(auth);
-  },
-
-  // حفظ الدرجة في Firestore
-  saveScore: async (uid: string, lessonId: string, score: number) => {
-    try {
-      const docRef = doc(db, "users", uid);
-      const docSnap = await getDoc(docRef);
-      
-      if (docSnap.exists()) {
-        const userData = docSnap.data() as User;
-        const currentScore = userData.scores[lessonId] || 0;
+        const userData: User = {
+          name,
+          email,
+          scores: {}
+        };
         
-        if (score > currentScore) {
-          const newScores = { ...userData.scores, [lessonId]: score };
-          await updateDoc(docRef, { scores: newScores });
-          return { ...userData, scores: newScores };
+        // محاولة إنشاء الملف الشخصي مع معالجة خطأ RLS
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert([{ id: data.user.id, name, email, scores: {} }]);
+
+        if (profileError) {
+            console.error("RLS Error:", profileError);
+            if (profileError.message.includes("row-level security")) {
+                return "حدث خطأ في صلاحيات قاعدة البيانات (RLS). يرجى التأكد من إعداد سياسات الوصول في Supabase أو استخدام وضع الزائر.";
+            }
+            return profileError.message;
         }
+        return userData;
       }
-      return null;
-    } catch (error) {
-      console.error("Error saving score:", error);
-      return null;
+      return "تعذر إنشاء المستخدم.";
+    } catch (err: any) {
+      return "خطأ في الاتصال بالخادم.";
     }
   },
 
-  // مراقب حالة المستخدم
+  login: async (email: string, password: string): Promise<User | string> => {
+    if (!supabase || !isSupabaseConfigured()) return CONFIG_ERROR;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return "بيانات الدخول غير صحيحة.";
+      if (data.user) {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .single();
+        if (profileError || !profile) return "تم الدخول ولكن تعذر جلب بيانات الملف الشخصي.";
+        return profile as User;
+      }
+      return "خطأ غير متوقع.";
+    } catch (err: any) {
+      return "فشل الاتصال.";
+    }
+  },
+
+  logout: async () => {
+    if (supabase && isSupabaseConfigured()) await supabase.auth.signOut();
+  },
+
+  saveScore: async (uid: string, lessonId: string, score: number) => {
+    if (!supabase || !isSupabaseConfigured()) return null;
+    try {
+      const { data: profile } = await supabase.from('profiles').select('scores').eq('id', uid).single();
+      if (!profile) return null;
+      const currentScores = profile.scores || {};
+      if (score > (currentScores[lessonId] || 0)) {
+        const newScores = { ...currentScores, [lessonId]: score };
+        const { data: updated } = await supabase.from('profiles').update({ scores: newScores }).eq('id', uid).select().single();
+        return updated as User;
+      }
+      return null;
+    } catch (err) { return null; }
+  },
+
   subscribeToAuthChanges: (callback: (user: User | null, uid: string | null) => void) => {
-    return onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const docRef = doc(db, "users", user.uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          callback(docSnap.data() as User, user.uid);
-        } else {
-          callback(null, null);
-        }
-      } else {
-        callback(null, null);
+    if (!supabase || !isSupabaseConfigured()) { 
+      callback(null, null); 
+      return () => {}; 
+    }
+    
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        supabase.from('profiles').select('*').eq('id', session.user.id).single()
+          .then(
+            ({ data: profile }) => callback(profile as User, session.user.id),
+            () => callback(null, session.user.id)
+          );
+      } else { 
+        callback(null, null); 
       }
     });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+        callback(profile as User, session.user.id);
+      } else { 
+        callback(null, null); 
+      }
+    });
+    
+    return () => subscription.unsubscribe();
   }
 };

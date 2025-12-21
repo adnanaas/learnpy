@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import AITutor from './components/AITutor';
@@ -21,7 +20,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isQuizOpen, setIsQuizOpen] = useState(false);
 
-  // الاستماع لحالة تسجيل الدخول من Firebase
+  // الاستماع لحالة تسجيل الدخول من Supabase
   useEffect(() => {
     const unsubscribe = authService.subscribeToAuthChanges((u, uid) => {
       setUser(u);
@@ -39,6 +38,8 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     await authService.logout();
+    setUser(null);
+    setUserId(null);
   };
 
   const handleNextExample = () => {
@@ -64,7 +65,7 @@ const App: React.FC = () => {
   };
 
   const handleQuizFinish = async (scorePercentage: number) => {
-    if (user && userId) {
+    if (userId) {
       const updatedUser = await authService.saveScore(userId, lesson.id, scorePercentage);
       if (updatedUser) setUser(updatedUser);
     }
@@ -75,7 +76,7 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-6">
         <div className="text-6xl mb-6 animate-bounce">🐍</div>
         <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-emerald-400 font-black animate-pulse">جاري الاتصال بالأكاديمية...</p>
+        <p className="text-emerald-400 font-black animate-pulse">جاري الاتصال بالأكاديمية عبر Supabase...</p>
       </div>
     );
   }
@@ -91,7 +92,7 @@ const App: React.FC = () => {
         onLessonSelect={id => setLesson(LESSONS.find(l => l.id === id)!)} 
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
-        userScores={user.scores}
+        userScores={user.scores || {}}
       />
       
       {isSidebarOpen && (
@@ -119,7 +120,7 @@ const App: React.FC = () => {
                 </h2>
                 <div className="flex items-center gap-2">
                     <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">الطالب: {user.name}</span>
-                    {user.scores[lesson.id] !== undefined && (
+                    {user.scores && user.scores[lesson.id] !== undefined && (
                       <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-full">أفضل درجة: {user.scores[lesson.id]}%</span>
                     )}
                 </div>

@@ -1,6 +1,8 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+
+// Fix: Use compat imports to resolve "no exported member" errors in both v8 and v9 environments
+import firebase from "firebase/compat/app";
+import "firebase/compat/auth";
+import "firebase/compat/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyA9k9nb61VOQK7B348I7BZ3zltcR8UNfjg",
@@ -12,11 +14,14 @@ const firebaseConfig = {
   measurementId: "G-GPPS82VBXN"
 };
 
-// تهيئة التطبيق مع التحقق لتجنب التكرار الذي يسبب أخطاء التسجيل
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+/**
+ * Initialize Firebase correctly checking for existing apps using compatibility syntax.
+ * This resolves issues where 'initializeApp', 'getApps', and 'getApp' were not found.
+ */
+const app = firebase.apps.length === 0 ? firebase.initializeApp(firebaseConfig) : firebase.app();
 
-// تهيئة وتصدير الخدمات من نفس نسخة التطبيق
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+// Initialize services using compatibility methods to resolve 'getAuth' and 'getFirestore' errors
+export const auth = firebase.auth();
+export const db = firebase.firestore();
 
 export default app;
