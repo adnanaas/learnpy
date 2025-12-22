@@ -1,4 +1,3 @@
-
 export enum LessonId {
   Intro = 'intro',
   Variables = 'variables',
@@ -28,18 +27,11 @@ export interface Lesson {
   id: LessonId;
   title: string;
   content: string;
-  examples: string[]; // تم التغيير من defaultCode إلى مصفوفة أمثلة
+  examples: string[];
   quiz?: Quiz;
 }
 
 export interface ChatMessage {
   role: 'user' | 'model' | 'system';
   text: string;
-}
-
-export interface User {
-  email: string;
-  name: string;
-  password?: string;
-  scores: Record<string, number>; // LessonId -> Score Percentage
 }
