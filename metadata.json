@@ -1,8 +1,9 @@
+
 {
   "requestFramePermissions": [
     "camera",
     "microphone"
   ],
-  "name": "أكاديمية بايثون الذكية",
-  "description": ""
+  "name": "أكاديمية بايثون الذكية - نسخة الياقوت",
+  "description": "الإصدار المستقر الأول - Sapphire Edition"
 }

@@ -1,7 +1,10 @@
+
+// Always use GoogleGenAI from @google/genai.
 import { GoogleGenAI, Type } from "@google/genai";
 import { ChatMessage } from "../types";
 
-const MODEL_NAME = 'gemini-3-flash-preview';
+// Using gemini-3-pro-preview for complex reasoning and coding analysis as per guidelines.
+const MODEL_NAME = 'gemini-3-pro-preview';
 
 export const getTutorResponse = async (
   lesson: string, content: string, code: string, msg: string, history: ChatMessage[]
@@ -13,8 +16,9 @@ export const getTutorResponse = async (
       return "خطأ: لم يتم العثور على مفتاح API_KEY. تأكد من إضافته في Netlify وإعادة بناء الموقع.";
     }
 
+    // Always use a named parameter for the apiKey when initializing GoogleGenAI.
     const ai = new GoogleGenAI({ apiKey });
-    const res = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: MODEL_NAME,
       contents: [
         ...history.filter(m => m.role !== 'system').map(m => ({
@@ -24,10 +28,13 @@ export const getTutorResponse = async (
         { role: 'user', parts: [{ text: msg }] }
       ],
       config: {
-        systemInstruction: `أنت معلم بايثون خبير وصبور. الدرس الحالي هو: ${lesson}. المحتوى التعليمي: ${content}. كود الطالب الحالي: ${code}. اشرح المفاهيم ببساطة وباللغة العربية.`
+        systemInstruction: `أنت معلم بايثون خبير وصبور. الدرس الحالي هو: ${lesson}. المحتوى التعليمي: ${content}. كود الطالب الحالي: ${code}. اشرح المفاهيم ببساطة وباللغة العربية.`,
+        // Enabling thinking budget for better reasoning in tutoring.
+        thinkingConfig: { thinkingBudget: 32768 }
       }
     });
-    return res.text || "لا يوجد رد من المعلم.";
+    // Access response.text directly as a property.
+    return response.text || "لا يوجد رد من المعلم.";
   } catch (error: any) {
     console.error("Gemini Tutor Error Details:", error);
     if (error.message?.includes("403")) return "خطأ 403: مفتاح الـ API غير صالح أو منطقتك غير مدعومة حالياً.";
@@ -44,9 +51,10 @@ export const executeAndAnalyze = async (code: string, lesson: string) => {
     }
 
     const ai = new GoogleGenAI({ apiKey });
-    const res = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: MODEL_NAME,
-      contents: [{ role: 'user', parts: [{ text: `قم بمحاكاة تنفيذ كود بايثون التالي لدرس ${lesson}، وحلل النتيجة:\n\n${code}` }] }],
+      // Sending single prompt as a string directly.
+      contents: `قم بمحاكاة تنفيذ كود بايثون التالي لدرس ${lesson}، وحلل النتيجة:\n\n${code}`,
       config: {
         systemInstruction: "تحليل كود بايثون وارجاع النتيجة بصيغة JSON حصراً. تأكد من إضافة سطر فارغ بين مخرجات الطباعة المختلفة.",
         responseMimeType: "application/json",
@@ -59,18 +67,21 @@ export const executeAndAnalyze = async (code: string, lesson: string) => {
             fixedCode: { type: Type.STRING }
           },
           required: ["isCorrect", "output", "feedback", "fixedCode"]
-        }
+        },
+        // Max thinking budget for gemini-3-pro-preview for deep coding logic analysis.
+        thinkingConfig: { thinkingBudget: 32768 }
       }
     });
     
-    const jsonStr = res.text?.trim() || '{}';
+    // Access response.text property directly.
+    const jsonStr = response.text?.trim() || '{}';
     return JSON.parse(jsonStr);
   } catch (error: any) {
     console.error("Gemini Analysis Error Details:", error);
     let feedback = "فشل الاتصال بالذكاء الاصطناعي.";
     
     if (error.message === "MISSING_API_KEY") {
-      feedback = "مفتاح API_KEY مفقود في إعدادات Netlify.";
+      feedback = "مفتاح API_KEY مفقود في إعدادات المنصة.";
     } else if (error.message.includes("403")) {
       feedback = "المفتاح غير صالح أو الخدمة غير متوفرة في منطقتك.";
     } else {
