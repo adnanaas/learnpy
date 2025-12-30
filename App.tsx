@@ -24,26 +24,30 @@ const App: React.FC = () => {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [userScores, setUserScores] = useState<Record<string, number>>({});
 
+  const loadProgressForUser = async (userId: string) => {
+    const scores = await fetchProgress(userId);
+    setUserScores(scores);
+  };
+
   useEffect(() => {
-    // التحقق من الجلسة الحالية
-    const initAuth = async () => {
+    // التحقق الأولي من الجلسة
+    const initApp = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         setUser(session.user);
-        const scores = await fetchProgress(session.user.id);
-        setUserScores(scores);
+        await loadProgressForUser(session.user.id);
       }
       setLoading(false);
     };
 
-    initAuth();
+    initApp();
 
+    // مراقبة تغييرات حالة الدخول/الخروج
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
+      if (session?.user) {
         setUser(session.user);
-        const scores = await fetchProgress(session.user.id);
-        setUserScores(scores);
-      } else if (event === 'SIGNED_OUT') {
+        await loadProgressForUser(session.user.id);
+      } else {
         setUser(null);
         setUserScores({});
       }
@@ -98,7 +102,7 @@ const App: React.FC = () => {
     const newScores = { ...userScores, [lesson.id]: scorePercentage };
     setUserScores(newScores);
     
-    // حفظ دائم في السحابة والكاش
+    // الحفظ في السحابة
     await saveProgress(user.id, lesson.id, scorePercentage);
   };
 
@@ -106,8 +110,18 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white">
         <div className="text-6xl mb-6 animate-bounce">🐍</div>
-        <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="mt-4 text-emerald-400 font-bold">جاري مزامنة بياناتك...</p>
+        <div className="w-12 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-full bg-emerald-500 animate-progress origin-left"></div>
+        </div>
+        <p className="mt-4 text-emerald-400 font-bold text-xs uppercase tracking-widest">مزامنة البيانات السحابية...</p>
+        <style>{`
+          @keyframes progress {
+            0% { transform: scaleX(0); }
+            50% { transform: scaleX(1); }
+            100% { transform: scaleX(0); }
+          }
+          .animate-progress { animation: progress 1.5s infinite ease-in-out; }
+        `}</style>
       </div>
     );
   }
@@ -156,7 +170,7 @@ const App: React.FC = () => {
                 </h2>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
-                    أكاديمية بايثون المستقلة
+                    أكاديمية بايثون الذكية
                   </span>
                 </div>
             </div>
