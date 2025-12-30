@@ -2,7 +2,21 @@
 import { supabase } from '../supabase';
 import { LessonId } from '../types';
 
+// مفتاح التخزين المحلي
+const getStorageKey = (userId: string) => `python_academy_progress_${userId}`;
+
 export const saveProgress = async (userId: string, lessonId: LessonId, score: number) => {
+  // 1. الحفظ في التخزين المحلي أولاً لضمان السرعة
+  try {
+    const localData = localStorage.getItem(getStorageKey(userId));
+    const progress = localData ? JSON.parse(localData) : {};
+    progress[lessonId] = score;
+    localStorage.setItem(getStorageKey(userId), JSON.stringify(progress));
+  } catch (e) {
+    console.warn('تعذر الحفظ محلياً:', e);
+  }
+
+  // 2. الحفظ في Supabase للاتصال الدائم
   try {
     const { data, error } = await supabase
       .from('user_progress')
@@ -13,41 +27,44 @@ export const saveProgress = async (userId: string, lessonId: LessonId, score: nu
         updated_at: new Date().toISOString()
       }, { onConflict: 'user_id,lesson_id' });
     
-    if (error) {
-      const errorMsg = error.message || JSON.stringify(error);
-      console.error('فشل في حفظ التقدم:', errorMsg);
-      return { data: null, error: errorMsg };
-    }
+    if (error) throw error;
     return { data, error: null };
   } catch (err: any) {
-    const catchMsg = err.message || 'حدث خطأ غير متوقع أثناء الحفظ';
-    console.error('خطأ غير متوقع أثناء الحفظ:', catchMsg);
-    return { data: null, error: catchMsg };
+    console.error('خطأ في مزامنة السحابة:', err.message);
+    return { data: null, error: err.message };
   }
 };
 
 export const fetchProgress = async (userId: string) => {
+  let combinedScores: Record<string, number> = {};
+
+  // 1. جلب البيانات من التخزين المحلي (فوري)
+  try {
+    const localData = localStorage.getItem(getStorageKey(userId));
+    if (localData) {
+      combinedScores = JSON.parse(localData);
+    }
+  } catch (e) {
+    console.error('خطأ في قراءة التخزين المحلي');
+  }
+
+  // 2. جلب البيانات من السحابة (دقيق)
   try {
     const { data, error } = await supabase
       .from('user_progress')
       .select('lesson_id, score')
       .eq('user_id', userId);
     
-    if (error) {
-      const errorMsg = error.message || JSON.stringify(error);
-      console.error('خطأ في جلب التقدم:', errorMsg);
-      return {};
-    }
-
-    const scores: Record<string, number> = {};
-    if (data) {
+    if (!error && data) {
       data.forEach(item => {
-        scores[item.lesson_id] = item.score;
+        combinedScores[item.lesson_id] = item.score;
       });
+      // تحديث الكاش المحلي ببيانات السحابة الأحدث
+      localStorage.setItem(getStorageKey(userId), JSON.stringify(combinedScores));
     }
-    return scores;
   } catch (err: any) {
-    console.error('خطأ فني في fetchProgress:', err.message || 'Error');
-    return {};
+    console.error('فشل جلب البيانات من السحابة، سيتم الاعتماد على الكاش:', err.message);
   }
+
+  return combinedScores;
 };

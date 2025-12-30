@@ -14,7 +14,6 @@ import { fetchProgress, saveProgress } from './services/authService';
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
-  const [isGuest, setIsGuest] = useState(false);
   const [lesson, setLesson] = useState<Lesson>(LESSONS[0]);
   const [exampleIndex, setExampleIndex] = useState(0);
   const [code, setCode] = useState(LESSONS[0].examples[0]);
@@ -26,41 +25,35 @@ const App: React.FC = () => {
   const [userScores, setUserScores] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    // التحقق من حالة المستخدم عند البدء
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+    // التحقق من الجلسة الحالية
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        loadUserProgress(session.user.id);
+        setUser(session.user);
+        const scores = await fetchProgress(session.user.id);
+        setUserScores(scores);
       }
       setLoading(false);
-    });
+    };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadUserProgress(session.user.id);
-      } else {
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        setUser(session.user);
+        const scores = await fetchProgress(session.user.id);
+        setUserScores(scores);
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
         setUserScores({});
-        setIsGuest(false);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadUserProgress = async (userId: string) => {
-    try {
-      const scores = await fetchProgress(userId);
-      setUserScores(scores);
-    } catch (e: any) {
-      console.warn('تعذر تحميل التقدم:', e.message);
-    }
-  };
-
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setIsGuest(false);
-    setUser(null);
   };
 
   const handleLessonChange = useCallback((id: LessonId) => {
@@ -99,16 +92,14 @@ const App: React.FC = () => {
   };
 
   const handleQuizFinish = async (scorePercentage: number) => {
+    if (!user) return;
+    
+    // تحديث الواجهة فوراً
     const newScores = { ...userScores, [lesson.id]: scorePercentage };
     setUserScores(newScores);
     
-    if (user) {
-      try {
-        await saveProgress(user.id, lesson.id, scorePercentage);
-      } catch (e) {
-        console.error('فشل الحفظ في السحابة');
-      }
-    }
+    // حفظ دائم في السحابة والكاش
+    await saveProgress(user.id, lesson.id, scorePercentage);
   };
 
   if (loading) {
@@ -116,20 +107,15 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white">
         <div className="text-6xl mb-6 animate-bounce">🐍</div>
         <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="mt-4 text-emerald-400 font-bold">جاري المزامنة مع السحابة...</p>
+        <p className="mt-4 text-emerald-400 font-bold">جاري مزامنة بياناتك...</p>
       </div>
     );
   }
 
-  const showAuth = !user && !isGuest;
-
   return (
     <div className="min-h-screen bg-slate-50 text-right flex flex-col md:flex-row" dir="rtl">
-      {showAuth && (
-        <AuthModal 
-          onSuccess={() => setIsGuest(false)} 
-          onGuestAccess={() => setIsGuest(true)} 
-        />
+      {!user && (
+        <AuthModal onSuccess={() => {}} />
       )}
       
       <Sidebar 
@@ -138,7 +124,7 @@ const App: React.FC = () => {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         userScores={userScores}
-        user={user || (isGuest ? { email: 'guest@academy.local' } : null)}
+        user={user}
       />
       
       {isSidebarOpen && (
@@ -170,14 +156,14 @@ const App: React.FC = () => {
                 </h2>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
-                    {isGuest ? 'وضع الضيف ✨' : 'أكاديمية بايثون المستقلة'}
+                    أكاديمية بايثون المستقلة
                   </span>
                 </div>
             </div>
           </div>
           
           <div className="flex items-center gap-2">
-            {(user || isGuest) && (
+            {user && (
               <button 
                 onClick={handleLogout}
                 className="p-2.5 text-rose-400 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-all"

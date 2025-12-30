@@ -1,14 +1,12 @@
 
-// Add missing React import to fix 'Cannot find namespace React' errors on lines 10 and 25.
 import React, { useState } from 'react';
 import { supabase, isPlaceholderMode } from '../supabase';
 
 interface AuthModalProps {
   onSuccess: () => void;
-  onGuestAccess: () => void;
 }
 
-const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onGuestAccess }) => {
+const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -31,7 +29,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onGuestAccess }) => {
     setError(null);
 
     if (isPlaceholderMode) {
-      setError('إعدادات قاعدة البيانات غير مكتملة في Vercel. يرجى الدخول كضيف حالياً.');
+      setError('إعدادات قاعدة البيانات غير مكتملة. يرجى مراجعة المشرف.');
       setLoading(false);
       return;
     }
@@ -53,7 +51,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onGuestAccess }) => {
         });
         if (signUpError) throw signUpError;
         
-        // اظهر رسالة النجاح ثم حوله لشاشة الدخول
         alert('تم تسجيل البيانات بنجاح! 🎉 يرجى تفعيل حسابك من البريد الإلكتروني ثم سجل دخولك.');
         setIsLogin(true);
         setError(null);
@@ -137,27 +134,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onGuestAccess }) => {
             {loading ? 'جاري العمل...' : (isLogin ? 'تسجيل الدخول' : 'إنشاء حساب جديد')}
           </button>
 
-          <div className="flex flex-col gap-3 pt-2">
+          <div className="text-center pt-2">
             <button 
               type="button"
               onClick={() => { setIsLogin(!isLogin); setError(null); }}
               className="text-slate-500 text-[11px] font-bold hover:text-emerald-600 transition-colors"
             >
               {isLogin ? 'ليس لديك حساب؟ اضغط هنا للتسجيل' : 'لديك حساب بالفعل؟ سجل دخولك من هنا'}
-            </button>
-            
-            <div className="relative flex py-2 items-center">
-                <div className="flex-grow border-t border-slate-100"></div>
-                <span className="flex-shrink mx-4 text-slate-300 text-[10px] font-bold uppercase">أو</span>
-                <div className="flex-grow border-t border-slate-100"></div>
-            </div>
-
-            <button 
-              type="button"
-              onClick={onGuestAccess}
-              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-2xl font-black text-[11px] transition-all"
-            >
-              تخطي والدخول كضيف ✨
             </button>
           </div>
         </form>
