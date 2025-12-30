@@ -2,53 +2,54 @@
 import { supabase } from '../supabase';
 import { LessonId } from '../types';
 
-// مفتاح التخزين المحلي لضمان السرعة (Cache)
 const getStorageKey = (userId: string) => `python_academy_progress_${userId}`;
 
-export const saveProgress = async (userId: string, lessonId: LessonId, score: number) => {
-  // 1. تحديث التخزين المحلي فوراً لتجربة مستخدم سريعة جداً
+/**
+ * جلب البيانات المحلية فوراً لضمان عدم تعليق واجهة المستخدم
+ */
+export const getLocalProgress = (userId: string): Record<string, number> => {
   try {
     const localData = localStorage.getItem(getStorageKey(userId));
-    const progress = localData ? JSON.parse(localData) : {};
-    progress[lessonId] = score;
-    localStorage.setItem(getStorageKey(userId), JSON.stringify(progress));
-  } catch (e) {
-    console.warn('Local save warning:', e);
-  }
-
-  // 2. المزامنة مع السحابة (Supabase)
-  try {
-    const { error } = await supabase
-      .from('user_progress')
-      .upsert({ 
-        user_id: userId, 
-        lesson_id: lessonId, 
-        score: score,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id,lesson_id' });
-    
-    if (error) throw error;
-    return { success: true, error: null };
-  } catch (err: any) {
-    console.error('Cloud Sync Error:', err.message);
-    return { success: false, error: err.message };
+    return localData ? JSON.parse(localData) : {};
+  } catch {
+    return {};
   }
 };
 
-export const fetchProgress = async (userId: string) => {
-  let combinedScores: Record<string, number> = {};
+/**
+ * حفظ التقدم في الحقل الخاص metadata مع المزامنة الخلفية
+ */
+export const saveProgress = async (userId: string, lessonId: LessonId, score: number, extraData: any = {}) => {
+  // 1. تحديث محلي فوري (تجربة مستخدم سريعة)
+  const progress = getLocalProgress(userId);
+  progress[lessonId] = score;
+  localStorage.setItem(getStorageKey(userId), JSON.stringify(progress));
 
-  // 1. تحميل البيانات من الذاكرة المحلية أولاً (Offline-First)
+  // 2. تحديث السحابة (خلفي)
   try {
-    const localData = localStorage.getItem(getStorageKey(userId));
-    if (localData) {
-      combinedScores = JSON.parse(localData);
-    }
-  } catch (e) {
-    console.error('Local fetch error');
+    const { error } = await supabase.from('user_progress').upsert({ 
+      user_id: userId, 
+      lesson_id: lessonId, 
+      score: score,
+      metadata: {
+        ...extraData,
+        last_updated: new Date().toISOString(),
+        platform: 'web_academy'
+      },
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id,lesson_id' });
+    
+    return { success: !error };
+  } catch (err) {
+    console.warn('Background sync deferred.');
+    return { success: false };
   }
+};
 
-  // 2. جلب أحدث البيانات من السحابة لضمان الدقة
+/**
+ * مزامنة صامتة في الخلفية لتحديث البيانات المحلية
+ */
+export const syncCloudProgress = async (userId: string) => {
   try {
     const { data, error } = await supabase
       .from('user_progress')
@@ -56,16 +57,15 @@ export const fetchProgress = async (userId: string) => {
       .eq('user_id', userId);
     
     if (!error && data) {
-      // دمج بيانات السحابة مع المحلية (السحابة لها الأولوية)
-      data.forEach(item => {
-        combinedScores[item.lesson_id] = item.score;
+      const cloudScores: Record<string, number> = {};
+      data.forEach((item: any) => {
+        cloudScores[item.lesson_id] = item.score;
       });
-      // تحديث الكاش المحلي بالبيانات الجديدة
-      localStorage.setItem(getStorageKey(userId), JSON.stringify(combinedScores));
+      localStorage.setItem(getStorageKey(userId), JSON.stringify(cloudScores));
+      return cloudScores;
     }
-  } catch (err: any) {
-    console.warn('Could not sync with cloud, using local data only.');
+  } catch (err) {
+    console.error('Sync failure:', err);
   }
-
-  return combinedScores;
+  return null;
 };

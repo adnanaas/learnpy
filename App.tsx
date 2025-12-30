@@ -9,7 +9,7 @@ import { LESSONS } from './constants';
 import { LessonId, Lesson } from './types';
 import { executeAndAnalyze } from './services/geminiService';
 import { supabase } from './supabase';
-import { fetchProgress, saveProgress } from './services/authService';
+import { getLocalProgress, syncCloudProgress, saveProgress } from './services/authService';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -24,29 +24,42 @@ const App: React.FC = () => {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [userScores, setUserScores] = useState<Record<string, number>>({});
 
-  const loadProgressForUser = async (userId: string) => {
-    const scores = await fetchProgress(userId);
-    setUserScores(scores);
+  const performBackgroundSync = async (userId: string) => {
+    const cloudScores = await syncCloudProgress(userId);
+    if (cloudScores) setUserScores(cloudScores);
   };
 
   useEffect(() => {
-    // التحقق الأولي من الجلسة
     const initApp = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        await loadProgressForUser(session.user.id);
+      // نضع مهلة قصيرة جداً (1 ثانية) لجلب الجلسة، إذا تأخرت نفتح التطبيق كزائر/محلي
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ data: { session: null } }), 1200));
+      
+      try {
+        const res: any = await Promise.race([sessionPromise, timeoutPromise]);
+        const session = res?.data?.session;
+        
+        if (session?.user) {
+          setUser(session.user);
+          // تحميل فوري من المتصفح
+          setUserScores(getLocalProgress(session.user.id));
+          // تحديث صامت من السحابة
+          performBackgroundSync(session.user.id);
+        }
+      } catch (err) {
+        console.warn("Starting in offline-first mode.");
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     initApp();
 
-    // مراقبة تغييرات حالة الدخول/الخروج
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         setUser(session.user);
-        await loadProgressForUser(session.user.id);
+        setUserScores(getLocalProgress(session.user.id));
+        performBackgroundSync(session.user.id);
       } else {
         setUser(null);
         setUserScores({});
@@ -87,8 +100,8 @@ const App: React.FC = () => {
       setResult(res);
     } catch (err) {
       setResult({ 
-        output: "تعذر الاتصال بالذكاء الاصطناعي", 
-        feedback: "يرجى التحقق من مفتاح الـ API في إعدادات المنصة." 
+        output: "تعذر الاتصال بالمعلم الذكي", 
+        feedback: "يرجى التحقق من اتصال الإنترنت ومفتاح API." 
       });
     } finally {
       setExecuting(false);
@@ -97,40 +110,31 @@ const App: React.FC = () => {
 
   const handleQuizFinish = async (scorePercentage: number) => {
     if (!user) return;
-    
-    // تحديث الواجهة فوراً
     const newScores = { ...userScores, [lesson.id]: scorePercentage };
     setUserScores(newScores);
     
-    // الحفظ في السحابة
-    await saveProgress(user.id, lesson.id, scorePercentage);
+    // حفظ البيانات في السحابة مع استغلال الحقل الخاص metadata
+    await saveProgress(user.id, lesson.id, scorePercentage, { 
+      device: navigator.userAgent.includes('Mobile') ? 'mobile' : 'desktop',
+      finished_quiz: true
+    });
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white">
-        <div className="text-6xl mb-6 animate-bounce">🐍</div>
-        <div className="w-12 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-          <div className="h-full bg-emerald-500 animate-progress origin-left"></div>
+        <div className="text-7xl mb-6 animate-pulse">🐍</div>
+        <div className="w-48 h-1 bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-full bg-emerald-500 animate-[loading_1s_infinite]"></div>
         </div>
-        <p className="mt-4 text-emerald-400 font-bold text-xs uppercase tracking-widest">مزامنة البيانات السحابية...</p>
-        <style>{`
-          @keyframes progress {
-            0% { transform: scaleX(0); }
-            50% { transform: scaleX(1); }
-            100% { transform: scaleX(0); }
-          }
-          .animate-progress { animation: progress 1.5s infinite ease-in-out; }
-        `}</style>
+        <style>{`@keyframes loading { 0% { width: 0%; transform: translateX(-100%); } 100% { width: 100%; transform: translateX(100%); } }`}</style>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-slate-50 text-right flex flex-col md:flex-row" dir="rtl">
-      {!user && (
-        <AuthModal onSuccess={() => {}} />
-      )}
+      {!user && <AuthModal onSuccess={() => {}} />}
       
       <Sidebar 
         activeLessonId={lesson.id} 
@@ -154,9 +158,7 @@ const App: React.FC = () => {
         />
       )}
 
-      {isAboutOpen && (
-        <AboutModal onClose={() => setIsAboutOpen(false)} />
-      )}
+      {isAboutOpen && <AboutModal onClose={() => setIsAboutOpen(false)} />}
 
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <header className="h-20 bg-white border-b px-4 md:px-8 flex items-center justify-between shrink-0 z-30 shadow-sm">
@@ -169,48 +171,34 @@ const App: React.FC = () => {
                   {lesson.title}
                 </h2>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
-                    أكاديمية بايثون الذكية
-                  </span>
+                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">أكاديمية بايثون</span>
                 </div>
             </div>
           </div>
           
           <div className="flex items-center gap-2">
             {user && (
-              <button 
-                onClick={handleLogout}
-                className="p-2.5 text-rose-400 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-all"
-                title="تسجيل الخروج"
-              >
+              <button onClick={handleLogout} className="p-2.5 text-rose-400 hover:bg-rose-50 rounded-xl transition-all" title="خروج">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
               </button>
             )}
 
-            <button 
-              onClick={() => setIsAboutOpen(true)} 
-              className="p-2.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-xl transition-all hidden md:block"
-              title="حول المنصة"
-            >
+            <button onClick={() => setIsAboutOpen(true)} className="p-2.5 text-slate-400 hover:bg-slate-100 rounded-xl hidden md:block">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
             </button>
 
             {lesson.examples.length > 1 && (
-              <button 
-                onClick={handleNextExample} 
-                className="bg-amber-100 text-amber-700 px-3 py-2.5 rounded-xl text-[10px] font-black hover:bg-amber-200 border border-amber-200 transition-all flex items-center gap-1.5"
-                title="عرض المثال التالي"
-              >
+              <button onClick={handleNextExample} className="bg-amber-100 text-amber-700 px-3 py-2.5 rounded-xl text-[10px] font-black hover:bg-amber-200 border border-amber-200 flex items-center gap-1.5">
                 <span>مثال ✨</span>
                 <span className="bg-amber-200/50 px-1.5 py-0.5 rounded-lg">{exampleIndex + 1}/{lesson.examples.length}</span>
               </button>
             )}
             {lesson.quiz && (
-              <button onClick={() => setIsQuizOpen(true)} className="bg-indigo-600 text-white px-3 py-2.5 rounded-xl text-[10px] font-black hover:bg-indigo-700 shadow-md shadow-indigo-100 transition-colors">
+              <button onClick={() => setIsQuizOpen(true)} className="bg-indigo-600 text-white px-3 py-2.5 rounded-xl text-[10px] font-black hover:bg-indigo-700 shadow-md">
                 تقويم 📝
               </button>
             )}
-            <button onClick={handleRun} disabled={executing} className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-xs font-black hover:bg-emerald-700 active:scale-95 disabled:opacity-50 shadow-md shadow-emerald-200 transition-all">
+            <button onClick={handleRun} disabled={executing} className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-xs font-black hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-md">
               {executing ? 'جاري التحليل...' : 'تشغيل ▶'}
             </button>
           </div>
@@ -234,13 +222,13 @@ const App: React.FC = () => {
 
           <div className="flex-1 flex flex-col gap-4 overflow-hidden">
             <div className="flex-1 bg-[#0d1117] rounded-3xl border border-slate-800 flex flex-col overflow-hidden shadow-xl">
-              <div className="bg-[#161b22] px-4 py-2 border-b border-slate-800 flex justify-between items-center shrink-0">
+              <div className="bg-[#161b22] px-4 py-2 border-b border-slate-800 flex justify-between items-center">
                 <div className="flex gap-1.5">
                     <div className="w-2.5 h-2.5 rounded-full bg-rose-500/30"></div>
                     <div className="w-2.5 h-2.5 rounded-full bg-amber-500/30"></div>
                     <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/30"></div>
                 </div>
-                <span className="text-[10px] text-slate-500 font-mono font-bold uppercase tracking-widest">مثال {exampleIndex + 1}</span>
+                <span className="text-[10px] text-slate-500 font-mono font-bold">مثال {exampleIndex + 1}</span>
               </div>
               <textarea 
                 value={code} 
